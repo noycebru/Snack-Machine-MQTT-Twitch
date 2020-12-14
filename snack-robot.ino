@@ -9,10 +9,22 @@
 #include "robot_wifi.h"
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 
 //------------------------------
 WiFiClient wiFiClient;
 PubSubClient client(wiFiClient); // MQTT client
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
+
+// Global variables
+int axisAngle1 = 180; // rotating base
+int axisAngle2 = 90; // lower arm
+int axisAngle3 = 90; // horizontal arm
+int axisAngle4 = 90; // ???
+int axisAngle5 = 100; // pincher
+
+int axisAngles[] = {180, 90, 90, 90, 100};
 
 // Put your setup code here, to run once:
 void setup() {
@@ -22,10 +34,10 @@ void setup() {
   setupPins();
 
   setupWIFI();
- 
-  setupWIFI();
 
   setupMQTT();
+
+  setupSnackBot();
 }
 
 void setupSerial() {
@@ -62,6 +74,14 @@ void setupMQTT() {
   client.setCallback(callback);// Initialize the callback routine
 }
 
+void setupSnackBot() {
+  //SnackBot
+  Wire.begin(SDA_PIN, SCL_PIN);
+  pwm.begin();
+  pwm.setPWMFreq(PWM_FREQ); // ada fruit mentions 50hz
+  yield();
+}
+
 void loop() {
   // Check to make sure we are connected to the mqtt server
   reconnectClient();
@@ -91,6 +111,36 @@ void reconnectClient() {
       delay(MQTT_RECONNECT_DELAY);
     }
     Serial.println('\n');
+  }
+}
+
+int angleToPulse(const int angle) {
+  // Map angle of 0 to 180 to Servo min and Servo max
+  const int pulse = map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
+  Serial.print("Angle: "); Serial.print(angle);
+  Serial.print(" pulse: "); Serial.println(pulse);
+
+  return pulse;
+}
+
+void setServoAngle(const int servoId, const int angle, int delayTime=20) {
+
+  if (axisAngles[servoId] >= angle)
+  {
+    for (axisAngles[servoId]; axisAngles[servoId] > angle; axisAngles[servoId]--)
+    {
+      delay(delayTime);
+      pwm.setPWM(servoId, 0, angleToPulse(axisAngles[servoId])); //
+      Serial.printf("AxisAngle%d set\n", servoId);
+    }
+  }
+  else if (axisAngles[servoId] < angle)
+  {
+    for (axisAngles[servoId];axisAngles[servoId] < angle; axisAngles[servoId]++)
+    {
+      delay(delayTime);
+      pwm.setPWM(servoId, 0, angleToPulse(axisAngles[servoId]));
+    }
   }
 }
 
@@ -130,11 +180,25 @@ void activateRobot(long activateTime) {
   Serial.print("activateRobot called: ");
   Serial.println(activateTime);
 
+  // We need to move the arm and grab some snacks
+  setServoAngle(0, 90);
+  setServoAngle(1, 40);
+  setServoAngle(2, 100);
+  setServoAngle(3, 80);
+  // delay half a second before we close the hand servo
+  delay(500); 
+  setServoAngle(4, 0);
 
-  // TODO: Add code for new robot here
-
+  // Now we need to move the arm back
+  delay(1000);
+  setServoAngle(2, 10, 30);
+  setServoAngle(0, 180);
+  setServoAngle(4, 60, 30);
+  delay(2000);
+  setServoAngle(1, 90);
+  setServoAngle(2, 90);
+  setServoAngle(3, 90);
 
   Serial.println("activateRobot completed!");
-  Serial.println();
-
+  Serial.println("\n");
 }
